@@ -33,7 +33,7 @@ private:
     sem m_queuestat;//是否有任务需要处理
     bool m_stop;//是否结束线程
 };
-
+//线程池的创建
 template< typename T >
 threadpool< T >::threadpool( int thread_number, int max_requests ) : 
         m_thread_number( thread_number ), m_max_requests( max_requests ), m_stop( false ), m_threads( NULL )
@@ -43,7 +43,7 @@ threadpool< T >::threadpool( int thread_number, int max_requests ) :
         throw std::exception();
     }
 
-    m_threads = new pthread_t[ m_thread_number ];
+    m_threads = new pthread_t[ m_thread_number ];//为线程池开辟空间
     if( ! m_threads )
     {
         throw std::exception();
@@ -57,7 +57,7 @@ threadpool< T >::threadpool( int thread_number, int max_requests ) :
             delete [] m_threads;
             throw std::exception();
         }
-        if( pthread_detach( m_threads[i] ) )
+        if( pthread_detach( m_threads[i] ) )//将线程分离
         {
             delete [] m_threads;
             throw std::exception();
@@ -77,14 +77,14 @@ bool threadpool< T >::append( T* request )
 {
 	//操作工作队列时一定要加锁，因为它被所有线程共享
     m_queuelocker.lock();
-    if ( m_workqueue.size() > m_max_requests )
+    if ( m_workqueue.size() > m_max_requests )//如果请求队列大于最大请求队列，则出错
     {
         m_queuelocker.unlock();
         return false;
     }
-    m_workqueue.push_back( request );
+    m_workqueue.push_back( request );//将请求加入到请求队列中
     m_queuelocker.unlock();
-    m_queuestat.post();
+    m_queuestat.post();//将信号增加1
     return true;
 }
 
@@ -101,7 +101,7 @@ void threadpool< T >::run()
 {
     while ( ! m_stop )
     {
-        m_queuestat.wait();
+        m_queuestat.wait();//信号量减1，直到为0的时候线程挂起等待
         m_queuelocker.lock();
         if ( m_workqueue.empty() )
         {
@@ -115,7 +115,7 @@ void threadpool< T >::run()
         {
             continue;
         }
-        request->process();
+        request->process();//执行工作队列
     }
 }
 

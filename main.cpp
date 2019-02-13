@@ -105,7 +105,7 @@ int main( int argc, char* argv[] )
         for ( int i = 0; i < number; i++ )
         {
             int sockfd = events[i].data.fd;
-            if( sockfd == listenfd )
+            if( sockfd == listenfd )//有新用户连接
             {
                 struct sockaddr_in client_address;
                 socklen_t client_addrlength = sizeof( client_address );
@@ -115,7 +115,7 @@ int main( int argc, char* argv[] )
                     printf( "errno is: %d\n", errno );
                     continue;
                 }
-                if( http_conn::m_user_count >= MAX_FD )
+                if( http_conn::m_user_count >= MAX_FD )//如果连接用户超过了预定的用户总数，则排除异常
                 {
                     show_error( connfd, "Internal server busy" );
                     continue;
@@ -127,11 +127,11 @@ int main( int argc, char* argv[] )
             {
                 users[sockfd].close_conn();//如果有异常直接关闭客户连接
             }
-            else if( events[i].events & EPOLLIN )
+            else if( events[i].events & EPOLLIN )//可读取
             {
 				//根据读的结果，决定是将任务添加到线程池，还是关闭连接
                 if( users[sockfd].read() )
-                {
+                {//读取成功则添加任务队列
                     pool->append( users + sockfd );
                 }
                 else
@@ -139,7 +139,7 @@ int main( int argc, char* argv[] )
                     users[sockfd].close_conn();
                 }
             }
-            else if( events[i].events & EPOLLOUT )
+            else if( events[i].events & EPOLLOUT )//可写入
             {
 				//根据写的结果，决定是否关闭连接
                 if( !users[sockfd].write() )
