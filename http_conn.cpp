@@ -1,5 +1,5 @@
 #include "http_conn.h"
-
+//定义HTTP响应的一些状态信息
 const char* ok_200_title = "OK";
 const char* error_400_title = "Bad Request";
 const char* error_400_form = "Your request has bad syntax or is inherently impossible to satisfy.\n";
@@ -9,7 +9,7 @@ const char* error_404_title = "Not Found";
 const char* error_404_form = "The requested file was not found on this server.\n";
 const char* error_500_title = "Internal Error";
 const char* error_500_form = "There was an unusual problem serving the requested file.\n";
-const char* doc_root = "/var/www/html";
+const char* doc_root = "/var/www/html";//网站的根目录
 
 int setnonblocking( int fd )
 {
@@ -53,10 +53,9 @@ void http_conn::close_conn( bool real_close )
 {
     if( real_close && ( m_sockfd != -1 ) )
     {
-        //modfd( m_epollfd, m_sockfd, EPOLLIN );
         removefd( m_epollfd, m_sockfd );
         m_sockfd = -1;
-        m_user_count--;
+        m_user_count--;//关闭一个连接时，将客户总量减1
     }
 }
 
@@ -129,7 +128,7 @@ http_conn::LINE_STATUS http_conn::parse_line()
 
     return LINE_OPEN;
 }
-
+//循环读取客户数据，直到无数据可读或者对方关闭连接
 bool http_conn::read()
 {
     if( m_read_idx >= READ_BUFFER_SIZE )
@@ -158,7 +157,7 @@ bool http_conn::read()
     }
     return true;
 }
-
+//解析HTTP请求行，获得请求方法、目标URL，以及HTTP版本号
 http_conn::HTTP_CODE http_conn::parse_request_line( char* text )
 {
     m_url = strpbrk( text, " \t" );
@@ -205,24 +204,25 @@ http_conn::HTTP_CODE http_conn::parse_request_line( char* text )
     m_check_state = CHECK_STATE_HEADER;
     return NO_REQUEST;
 }
-
+//解析HTTP请求的一个头部信息
 http_conn::HTTP_CODE http_conn::parse_headers( char* text )
 {
-    if( text[ 0 ] == '\0' )
+    if( text[ 0 ] == '\0' )//遇到空行，表示头部字段解析完毕
     {
-        if ( m_method == HEAD )
+        if ( m_method == HEAD )//
         {
             return GET_REQUEST;
         }
-
+		//如果HTTP请求有消息体，则还需要读取m_content_length字节的消息体，状态机转移到CHECK_STATE_CONTENT状态
         if ( m_content_length != 0 )
         {
             m_check_state = CHECK_STATE_CONTENT;
             return NO_REQUEST;
         }
 
-        return GET_REQUEST;
+        return GET_REQUEST;//否则说明我们已经得到一个完整的HTTP请求
     }
+	//处理connection头部字段
     else if ( strncasecmp( text, "Connection:", 11 ) == 0 )
     {
         text += 11;
@@ -232,12 +232,14 @@ http_conn::HTTP_CODE http_conn::parse_headers( char* text )
             m_linger = true;
         }
     }
+	//处理content-Length头部字段
     else if ( strncasecmp( text, "Content-Length:", 15 ) == 0 )
     {
         text += 15;
         text += strspn( text, " \t" );
         m_content_length = atol( text );
     }
+	//处理Host头部字段
     else if ( strncasecmp( text, "Host:", 5 ) == 0 )
     {
         text += 5;
@@ -252,7 +254,7 @@ http_conn::HTTP_CODE http_conn::parse_headers( char* text )
     return NO_REQUEST;
 
 }
-
+//我们没有真正解析HTTP请求，只是判断它是否被完整地读入了
 http_conn::HTTP_CODE http_conn::parse_content( char* text )
 {
     if ( m_read_idx >= ( m_content_length + m_checked_idx ) )
@@ -263,7 +265,7 @@ http_conn::HTTP_CODE http_conn::parse_content( char* text )
 
     return NO_REQUEST;
 }
-
+//主机状态
 http_conn::HTTP_CODE http_conn::process_read()
 {
     LINE_STATUS line_status = LINE_OK;
@@ -320,7 +322,8 @@ http_conn::HTTP_CODE http_conn::process_read()
 
     return NO_REQUEST;
 }
-
+//当得到一个完整，正确的HTTP请求时，我们就分析目标文件的属性，如果目标文件存在，对所有用户可读。且不是目录，则使用mmap将其映射到内存地址m_file_address处，并
+//告诉调用者获取文件成功
 http_conn::HTTP_CODE http_conn::do_request()
 {
     strcpy( m_real_file, doc_root );
@@ -346,7 +349,7 @@ http_conn::HTTP_CODE http_conn::do_request()
     close( fd );
     return FILE_REQUEST;
 }
-
+//对内存映射区执行munmap操作
 void http_conn::unmap()
 {
     if( m_file_address )
@@ -355,7 +358,7 @@ void http_conn::unmap()
         m_file_address = 0;
     }
 }
-
+//写HTTP响应
 bool http_conn::write()
 {
     int temp = 0;
@@ -373,6 +376,7 @@ bool http_conn::write()
         temp = writev( m_sockfd, m_iv, m_iv_count );
         if ( temp <= -1 )
         {
+			//如果TCP写缓冲没有空间，，则等待下一轮EPOLLOUT事件，虽然在此期间，服务器无法立即接收到同一个客户的下一个请求，但这可以保证连接的完整性
             if( errno == EAGAIN )
             {
                 modfd( m_epollfd, m_sockfd, EPOLLOUT );
@@ -386,6 +390,7 @@ bool http_conn::write()
         bytes_have_send += temp;
         if ( bytes_to_send <= bytes_have_send )
         {
+			//发送HTTP响应成功，根据HTTP请求中的Connection字段决定是否立即关闭连接
             unmap();
             if( m_linger )
             {
@@ -401,7 +406,7 @@ bool http_conn::write()
         }
     }
 }
-
+//往写缓冲中写入待发送的数据
 bool http_conn::add_response( const char* format, ... )
 {
     if( m_write_idx >= WRITE_BUFFER_SIZE )
@@ -451,7 +456,7 @@ bool http_conn::add_content( const char* content )
 {
     return add_response( "%s", content );
 }
-
+//根据服务器处理HTTP请求的结果，决定返回给客户端的内容
 bool http_conn::process_write( HTTP_CODE ret )
 {
     switch ( ret )
@@ -530,7 +535,7 @@ bool http_conn::process_write( HTTP_CODE ret )
     m_iv_count = 1;
     return true;
 }
-
+//由线程池中的工作线程调用，这是处理HTTP请求的入口函数
 void http_conn::process()
 {
     HTTP_CODE read_ret = process_read();

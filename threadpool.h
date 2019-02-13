@@ -1,32 +1,37 @@
 #ifndef THREADPOOL_H
 #define THREADPOOL_H
-
+//半同步/半反应堆线程池实现
+//实现原理：使用一个工作队列完全解除了主线程和工作线程的耦合关系，主线程往工作队列中插入任务，工作线程通过竞争来取得任务并执行它。不过，如果要将该线程池应用到
+//实际服务程序中，那么我们必须保证所有客户请求都是无状态的，因为同一个连接上的不同请求可能会有不同线程处理。
 #include <list>
 #include <cstdio>
 #include <exception>
 #include <pthread.h>
 #include "locker.h"
 
+//线程池类，将它定义为模板类是为了代码复用，模板参数T是任务类
 template< typename T >
 class threadpool
 {
 public:
+//参数thread_number是线程池中线程的数量，max_requests是请求队列中最多允许的、等待处理的请求的数量
     threadpool( int thread_number = 8, int max_requests = 10000 );
     ~threadpool();
-    bool append( T* request );
+    bool append( T* request );//往请求队列中添加任务
 
 private:
+//工作线程运行的函数，它不断从工作队列中取出任务并执行
     static void* worker( void* arg );
     void run();
 
 private:
-    int m_thread_number;
-    int m_max_requests;
-    pthread_t* m_threads;
-    std::list< T* > m_workqueue;
-    locker m_queuelocker;
-    sem m_queuestat;
-    bool m_stop;
+    int m_thread_number;//线程池中的线程数
+    int m_max_requests;//请求队列中允许的最大请求数
+    pthread_t* m_threads;//描述线程池的数组，其大小为m_thread_number
+    std::list< T* > m_workqueue;//请求队列
+    locker m_queuelocker;//保护请求队列的互斥锁
+    sem m_queuestat;//是否有任务需要处理
+    bool m_stop;//是否结束线程
 };
 
 template< typename T >
@@ -43,7 +48,7 @@ threadpool< T >::threadpool( int thread_number, int max_requests ) :
     {
         throw std::exception();
     }
-
+	//创建thread_number个线程，并将它们都设置为脱离线程
     for ( int i = 0; i < thread_number; ++i )
     {
         printf( "create the %dth thread\n", i );
@@ -70,6 +75,7 @@ threadpool< T >::~threadpool()
 template< typename T >
 bool threadpool< T >::append( T* request )
 {
+	//操作工作队列时一定要加锁，因为它被所有线程共享
     m_queuelocker.lock();
     if ( m_workqueue.size() > m_max_requests )
     {
